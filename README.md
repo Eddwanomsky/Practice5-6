@@ -1,83 +1,114 @@
-#  TypeORM / Express / TypeScript RESTful API boilerplate
+# REST API Backend (Express, TypeScript, TypeORM, PostgreSQL)
 
-[![CI][build-badge]][build-url]
-[![TypeScript][typescript-badge]][typescript-url]
-[![prettier][prettier-badge]][prettier-url]
-![Heisenberg](misc/heisenberg.png)
+Проєкт реалізує повноцінний REST API бекенд із дотриманням сучасних архітектурних принципів, впровадженням сервісного шару, валідацією вхідних даних через middleware та контрольованими відповідями за допомогою DTO.
 
-Boilerplate with focus on best practices and painless developer experience:
+---
 
-- Minimal setup that can be extended 🔧
-- Spin it up with single command 🌀
-- TypeScript first
-- RESTful APIs
-- JWT authentication with role based authorization
+##Архітектура проекту та ролі шарів
 
-## Requirements
+Проєкт побудований за багатошаровою (Layered) архітектурою, де кожен шар виконує строго визначену задачу:
 
-- [Node v16+](https://nodejs.org/)
-- [Docker](https://www.docker.com/)
+1. **Middleware (Валідація):**
+   * Перевіряє вхідні дані (`req.body`) до того, як вони потраплять у контролер. Використовує бібліотеку `validator` для перевірки полів та генерує контрольовані помилки через клас `AppError` (статус 400 Bad Request).
+2. **Controller (Оркестрація):**
+   * Приймає HTTP-запити, викликає методи сервісного шару, керує HTTP-статусами відповіді та трансформує отримані дані в Response DTO.
+3. **Service (Бізнес-логіка):**
+   * Містить всю основну бізнес-логіку програми. Інкапсулює взаємодію з репозиторіями TypeORM, обробку зв'язків та перевірки наявності сутностей у базі даних.
+4. **Repository / Entity (Доступ до даних):**
+   * Описують структуру таблиць бази даних (`Brand`, `Car`) та забезпечують пряму роботу з PostgreSQL через TypeORM.
 
-## Running
+---
 
-_Easily set up a local development environment with single command!_
+##Приклади реалізації ключових компонентів
 
-- clone the repo
-- `npm run docker:dev` 🚀
+### 1. Middleware-функція для валідації
+Приклад асинхронного валідатора для створення автомобіля:
 
-Visit [localhost:4000](http://localhost:4000/) or if using Postman grab [config](/postman).
+```typescript
+import { Request, Response, NextFunction } from 'express';
+import validator from 'validator';
+import { AppError } from '../../../errors/AppError';
 
-### _What happened_ 💥
+export async function validatorCreateCar(req: Request, _res: Response, next: NextFunction): Promise<void> {
+  const { model, year, price, vin, brandId } = req.body;
 
-Containers created:
+  if (validator.isEmpty(model || '')) {
+    throw new AppError('Car model is required');
+  }
+  if (!year || !validator.isInt(String(year), { min: 1900, max: 2100 })) {
+    throw new AppError('Valid year between 1900 and 2100 is required');
+  }
+  if (!price || !validator.isFloat(String(price), { gt: 0 })) {
+    throw new AppError('Price must be a number greater than 0');
+  }
+  if (validator.isEmpty(vin || '')) {
+    throw new AppError('VIN code is required');
+  }
+  if (!brandId || !validator.isInt(String(brandId))) {
+    throw new AppError('Valid brandId is required');
+  }
 
-- Postgres database container seeded with 💊 Breaking Bad characters in `Users` table (default credentials `user=walter`, `password=white` in [.env file](./.env))
-- Node (v16 Alpine) container with running boilerplate RESTful API service
-- and one Node container instance to run tests locally or in CI
+  return next();
+}
 
-## Features:
+Приклад роботи CarService
 
-- [Express](https://github.com/expressjs/express) framework
-- [TypeScript v4](https://github.com/microsoft/TypeScript) codebase
-- [TypeORM](https://typeorm.io/) using Data Mapper pattern
-- [Docker](https://www.docker.com/) environment:
-  - Easily start local development using [Docker Compose](https://docs.docker.com/compose/) with single command `npm run docker:dev`
-  - Connect to different staging or production environments `npm run docker:[stage|prod]`
-  - Ready for **microservices** development and deployment.  
-    Once API changes are made, just build and push new docker image with your favourite CI/CD tool  
-    `docker build -t <username>/api-boilerplate:latest .`  
-    `docker push <username>/api-boilerplate:latest`
-  - Run unit, integration (or setup with your frontend E2E) tests as `docker exec -ti be_boilerplate_test sh` and `npm run test`
-- Contract first REST API design:
-  - never break API again with HTTP responses and requests payloads using [type definitions](./src/types/express/index.d.ts)
-  - Consistent schema error [response](./src/utils/response/custom-error/types.ts). Your frontend will always know how to handle errors thrown in `try...catch` statements 💪
-- JWT authentication and role based authorization using custom middleware
-- Set local, stage or production [environmental variables](./config) with [type definitions](./src/types/ProcessEnv.d.ts)
-- Logging with [morgan](https://github.com/expressjs/morgan)
-- Unit and integration tests with [Mocha](https://mochajs.org/) and [Chai](https://www.chaijs.com/)
-- Linting with [ESLint](https://eslint.org/)
-- [Prettier](https://prettier.io/) code formatter
-- Git hooks with [Husky](https://github.com/typicode/husky) and [lint-staged](https://github.com/okonet/lint-staged)
-- Automated npm & Docker dependency updates with [Renovate](https://github.com/renovatebot/renovate) (set to patch version only)
-- Commit messages must meet [conventional commits](https://www.conventionalcommits.org/en/v1.0.0/) format.  
-  After staging changes just run `npm run commit` and get instant feedback on your commit message formatting and be prompted for required fields by [Commitizen](https://github.com/commitizen/cz-cli)
+import { AppDataSource } from '../../database/data-source';
+import { Car } from '../../orm/entities/Car';
+import { Brand } from '../../orm/entities/Brand';
 
-## Other awesome boilerplates:
+export class CarService {
+  private carRepository = AppDataSource.getRepository(Car);
+  private brandRepository = AppDataSource.getRepository(Brand);
 
-Each boilerplate comes with it's own flavor of libraries and setup, check out others:
+  async create(carData: any): Promise<Car> {
+    const brand = await this.brandRepository.findOne({ where: { id: carData.brandId } });
+    if (!brand) {
+      throw new Error(`Brand with ID ${carData.brandId} not found`);
+    }
 
-- [Express and TypeORM with TypeScript](https://github.com/typeorm/typescript-express-example)
-- [Node.js, Express.js & TypeScript Boilerplate for Web Apps](https://github.com/jverhoelen/node-express-typescript-boilerplate)
-- [Express boilerplate for building RESTful APIs](https://github.com/danielfsousa/express-rest-es2017-boilerplate)
-- [A delightful way to building a RESTful API with NodeJs & TypeScript by @w3tecch](https://github.com/w3tecch/express-typescript-boilerplate)
+    const car = this.carRepository.create({
+      ...carData,
+      brand,
+    });
+    return await this.carRepository.save(car);
+  }
 
-[build-badge]: https://github.com/mkosir/express-typescript-typeorm-boilerplate/actions/workflows/main.yml/badge.svg
-[build-url]: https://github.com/mkosir/express-typescript-typeorm-boilerplate/actions/workflows/main.yml
-[typescript-badge]: https://badges.frapsoft.com/typescript/code/typescript.svg?v=101
-[typescript-url]: https://github.com/microsoft/TypeScript
-[prettier-badge]: https://img.shields.io/badge/code_style-prettier-ff69b4.svg
-[prettier-url]: https://github.com/prettier/prettier
+  async findAll(): Promise<Car[]> {
+    return await this.carRepository.find({ relations: ['brand'] });
+  }
+}
 
-## Contributing
+Клас для фільтрації та безпечного формування відповіді клієнту
 
-All contributions are welcome!
+import { Car } from '../../../orm/entities/Car';
+
+export class CarResponseDTO {
+  id: number;
+  model: string;
+  year: number;
+  price: number;
+  vin: string;
+  brandName?: string;
+
+  constructor(car: Car) {
+    this.id = car.id;
+    this.model = car.model;
+    this.year = car.year;
+    this.price = car.price;
+    this.vin = car.vin;
+    if (car.brand) {
+      this.brandName = car.brand.name;
+    }
+  }
+}
+
+Помилка валідації (400 Bad Request)
+Запит на створення сутності з порожніми чи некоректними даними перехоплюється middleware-валідатором і повертає помилку
+<img width="755" height="591" alt="image" src="https://github.com/user-attachments/assets/a3c0bcb6-be14-4401-a98f-6d8916e7c9bd" />
+
+Успішний запит повертає відфільтровану структуровану відповідь через DTO
+<img width="545" height="690" alt="image" src="https://github.com/user-attachments/assets/67ac1a26-afbd-49d4-9cf1-348f5cb170f4" />
+
+
+
