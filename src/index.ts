@@ -8,7 +8,8 @@ import cors from 'cors';
 import express from 'express';
 import helmet from 'helmet';
 import morgan from 'morgan';
-
+import brandRoutes from './modules/brands/brand.routes';
+import carRoutes from './modules/cars/car.routes';
 import './utils/response/customSuccess';
 import { errorHandler } from './middleware/errorHandler';
 import { getLanguage } from './middleware/getLanguage';
@@ -31,7 +32,8 @@ try {
   console.log(err);
 }
 app.use(morgan('combined'));
-
+app.use('/api/brands', brandRoutes);
+app.use('/api/cars', carRoutes);
 app.use('/', routes);
 
 app.use(errorHandler);

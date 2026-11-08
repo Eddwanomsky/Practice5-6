@@ -1,0 +1,18 @@
+{
+  "type": "postgres",
+  "host": "127.0.0.1",
+  "port": 8432,
+  "username": "walter",
+  "password": "white",
+  "database": "boilerplate",
+  "synchronize": false,
+  "logging": false,
+  "entities": ["src/orm/entities/**/*.ts"],
+  "migrations": ["src/orm/migrations/**/*.ts"],
+  "subscribers": ["src/orm/subscriber/**/*.ts"],
+  "cli": {
+    "entitiesDir": "src/orm/entities",
+    "migrationsDir": "src/orm/migrations",
+    "subscribersDir": "src/orm/subscriber"
+  }
+}
